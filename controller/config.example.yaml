@@ -1,0 +1,81 @@
+# Timberborn Automation Controller Configuration
+
+# API endpoint (default: http://localhost:8080)
+api_base: http://localhost:8080
+
+# How often to poll adapter states (seconds)
+polling_interval_seconds: 2
+
+# Automation rules
+# Each rule has:
+#   - name: descriptive name for logging
+#   - conditions: adapter checks with AND/OR operator
+#   - actions: levers to trigger when conditions match
+rules:
+  - name: "Drought Water Emergency"
+    conditions:
+      operator: AND
+      checks:
+        - adapter: "Weather Drought"
+          state: true
+        - adapter: "Water Depth Critical"
+          state: true
+    actions:
+      - lever: "Pump Station"
+        action: "on"
+      - lever: "Main Floodgate"
+        action: "off"
+
+  - name: "Low Log Supply"
+    conditions:
+      # OR is default if operator not specified
+      checks:
+        - adapter: "Log Storage Low"
+          state: true
+    actions:
+      - lever: "Forester Priority"
+        action: "on"
+
+  - name: "Gear Production Needed"
+    conditions:
+      checks:
+        - adapter: "Gear Count Low"
+          state: true
+    actions:
+      - lever: "Gear Factory"
+        action: "on"
+
+  - name: "Water Crisis Resolved"
+    conditions:
+      operator: AND
+      checks:
+        - adapter: "Weather Drought"
+          state: false
+        - adapter: "Water Depth Critical"
+          state: false
+    actions:
+      - lever: "Pump Station"
+        action: "off"
+      - lever: "Main Floodgate"
+        action: "on"
+
+  - name: "Night Power Save"
+    conditions:
+      operator: AND
+      checks:
+        - adapter: "Time Night"
+          state: true
+        - adapter: "Power Surplus"
+          state: true
+    actions:
+      - lever: "Non-Essential Buildings"
+        action: "off"
+
+  - name: "Day Power Restore"
+    conditions:
+      checks:
+        - adapter: "Time Day"
+          state: true
+    actions:
+      - lever: "Non-Essential Buildings"
+        action: "on"
