@@ -34,7 +34,7 @@
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
         }
 
@@ -62,11 +62,12 @@
             gap: 20px;
             justify-content: center;
             align-items: center;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             padding: 15px;
             background: var(--bg-card);
             border-radius: 8px;
             border: 1px solid var(--border);
+            flex-wrap: wrap;
         }
 
         .status-indicator {
@@ -101,10 +102,44 @@
             font-size: 0.9rem;
         }
 
-        .controls {
+        .config-panel {
             margin-bottom: 20px;
-            display: flex;
+            padding: 15px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .config-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 15px;
+            margin-bottom: 10px;
+        }
+
+        .config-field {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .config-field label {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        .config-field input {
+            background: var(--bg-dark);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
             flex-wrap: wrap;
             justify-content: center;
         }
@@ -137,6 +172,10 @@
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 20px;
+        }
+
+        .card.wide {
+            grid-column: 1 / -1;
         }
 
         .card h2 {
@@ -217,6 +256,44 @@
             transform: scale(1.05);
         }
 
+        .event-list {
+            max-height: 400px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .event-item {
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 4px;
+            border-left: 3px solid var(--border);
+            font-size: 0.9rem;
+        }
+
+        .event-item.adapter {
+            border-left-color: var(--warning);
+        }
+
+        .event-item.lever {
+            border-left-color: var(--lever-on);
+        }
+
+        .event-item.rule {
+            border-left-color: var(--accent);
+        }
+
+        .event-time {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            margin-bottom: 4px;
+        }
+
+        .event-details {
+            color: var(--text);
+        }
+
         .empty-state {
             color: var(--text-dim);
             text-align: center;
@@ -225,17 +302,17 @@
         }
 
         .category-selector {
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
 
         .category-selector input {
-            background: var(--bg-card);
+            background: var(--bg-dark);
             color: var(--text);
             border: 1px solid var(--border);
             padding: 8px;
             border-radius: 4px;
             width: 100%;
-            margin-top: 8px;
+            margin-top: 5px;
         }
 
         .category-selector label {
@@ -263,13 +340,30 @@
     <div class="container">
         <header>
             <h1>🦫 Timberborn Colony Dashboard</h1>
-            <div class="subtitle">Real-time colony status monitoring</div>
+            <div class="subtitle">Real-time colony status monitoring + automation events</div>
         </header>
+
+        <div class="config-panel">
+            <div class="config-row">
+                <div class="config-field">
+                    <label>Game API URL:</label>
+                    <input type="text" id="gameApiUrl" value="http://localhost:8080" onchange="saveConfig()">
+                </div>
+                <div class="config-field">
+                    <label>Controller URL (optional):</label>
+                    <input type="text" id="controllerUrl" value="http://localhost:8081" onchange="saveConfig()">
+                </div>
+            </div>
+        </div>
 
         <div class="status-bar">
             <div class="status-indicator">
-                <div class="status-dot" id="connectionDot"></div>
-                <span id="connectionStatus">Connecting...</span>
+                <div class="status-dot" id="gameDot"></div>
+                <span id="gameStatus">Game: Connecting...</span>
+            </div>
+            <div class="status-indicator">
+                <div class="status-dot" id="controllerDot"></div>
+                <span id="controllerStatus">Controller: Checking...</span>
             </div>
             <div class="last-update">
                 Last update: <span id="lastUpdate">never</span>
@@ -284,7 +378,6 @@
             <button onclick="togglePolling()">
                 <span id="pollingButton">⏸️ Pause</span>
             </button>
-            <button onclick="showConfig()">⚙️ Configure Categories</button>
         </div>
 
         <div class="grid">
@@ -309,12 +402,20 @@
                     <div class="empty-state">Waiting for data...</div>
                 </div>
             </div>
+
+            <div class="card wide">
+                <h2>⚡ Automation Events</h2>
+                <div class="event-list" id="eventList">
+                    <div class="empty-state">No events yet. Enable controller webhook mode to see automation events.</div>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
         // Configuration
-        const API_BASE = 'http://localhost:8080';
+        let GAME_API_URL = 'http://localhost:8080';
+        let CONTROLLER_URL = 'http://localhost:8081';
         const POLL_INTERVAL = 5000; // 5 seconds
         
         // State
@@ -322,10 +423,40 @@
         let pollTimer = null;
         let adapters = [];
         let levers = [];
-        let isConnected = false;
+        let events = [];
+        let gameConnected = false;
+        let controllerConnected = false;
+
+        // Load config from localStorage
+        function loadConfig() {
+            const savedGameUrl = localStorage.getItem('gameApiUrl');
+            const savedControllerUrl = localStorage.getItem('controllerUrl');
+            
+            if (savedGameUrl) {
+                GAME_API_URL = savedGameUrl;
+                document.getElementById('gameApiUrl').value = savedGameUrl;
+            }
+            
+            if (savedControllerUrl) {
+                CONTROLLER_URL = savedControllerUrl;
+                document.getElementById('controllerUrl').value = savedControllerUrl;
+            }
+        }
+
+        // Save config to localStorage
+        function saveConfig() {
+            GAME_API_URL = document.getElementById('gameApiUrl').value;
+            CONTROLLER_URL = document.getElementById('controllerUrl').value;
+            
+            localStorage.setItem('gameApiUrl', GAME_API_URL);
+            localStorage.setItem('controllerUrl', CONTROLLER_URL);
+            
+            console.log('Config saved:', { GAME_API_URL, CONTROLLER_URL });
+        }
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
+            loadConfig();
             document.getElementById('pollInterval').textContent = POLL_INTERVAL / 1000;
             startPolling();
         });
@@ -361,25 +492,72 @@
 
         // Data fetching
         async function refreshNow() {
+            await Promise.all([
+                fetchFromGame(),
+                fetchFromController()
+            ]);
+            updateLastUpdate();
+        }
+
+        async function fetchFromGame() {
             try {
-                await Promise.all([fetchAdapters(), fetchLevers()]);
-                setConnected(true);
-                updateLastUpdate();
+                await Promise.all([fetchAdaptersFromGame(), fetchLeversFromGame()]);
+                setGameConnected(true);
             } catch (err) {
-                console.error('Refresh failed:', err);
-                setConnected(false);
+                console.error('Game API error:', err);
+                setGameConnected(false);
             }
         }
 
-        async function fetchAdapters() {
-            const response = await fetch(`${API_BASE}/api/adapters`);
+        async function fetchFromController() {
+            try {
+                const response = await fetch(`${CONTROLLER_URL}/api/state`, { 
+                    signal: AbortSignal.timeout(2000) 
+                });
+                
+                if (!response.ok) throw new Error('Controller API failed');
+                
+                const data = await response.json();
+                setControllerConnected(true);
+                
+                // Merge controller state with game data
+                if (data.adapters) {
+                    adapters = Object.entries(data.adapters).map(([name, state]) => ({
+                        name, state
+                    }));
+                    renderAdapters();
+                }
+                
+                if (data.levers) {
+                    levers = Object.entries(data.levers).map(([name, state]) => ({
+                        name, state
+                    }));
+                    renderLevers();
+                }
+                
+                if (data.events) {
+                    events = data.events;
+                    renderEvents();
+                }
+            } catch (err) {
+                console.debug('Controller not available:', err.message);
+                setControllerConnected(false);
+            }
+        }
+
+        async function fetchAdaptersFromGame() {
+            const response = await fetch(`${GAME_API_URL}/api/adapters`, {
+                signal: AbortSignal.timeout(2000)
+            });
             if (!response.ok) throw new Error('Failed to fetch adapters');
             adapters = await response.json();
             renderAdapters();
         }
 
-        async function fetchLevers() {
-            const response = await fetch(`${API_BASE}/api/levers`);
+        async function fetchLeversFromGame() {
+            const response = await fetch(`${GAME_API_URL}/api/levers`, {
+                signal: AbortSignal.timeout(2000)
+            });
             if (!response.ok) throw new Error('Failed to fetch levers');
             levers = await response.json();
             renderLevers();
@@ -439,6 +617,45 @@
                 `).join('');
         }
 
+        function renderEvents() {
+            const container = document.getElementById('eventList');
+            
+            if (events.length === 0) {
+                container.innerHTML = '<div class="empty-state">No events yet</div>';
+                return;
+            }
+
+            // Reverse to show newest first
+            const sortedEvents = [...events].reverse();
+            
+            container.innerHTML = sortedEvents.map(event => {
+                const time = new Date(event.timestamp * 1000).toLocaleTimeString();
+                let icon = '📡';
+                let stateText = '';
+                
+                if (event.type === 'adapter') {
+                    icon = '📊';
+                    stateText = event.state ? 'ON' : 'OFF';
+                } else if (event.type === 'lever') {
+                    icon = '🎛️';
+                    stateText = event.state ? 'ON' : 'OFF';
+                } else if (event.type === 'rule') {
+                    icon = '⚡';
+                }
+                
+                return `
+                    <div class="event-item ${event.type}">
+                        <div class="event-time">${time}</div>
+                        <div class="event-details">
+                            ${icon} <strong>${event.type.toUpperCase()}:</strong> ${escapeHtml(event.name)} 
+                            ${stateText ? `→ ${stateText}` : ''}
+                            ${event.details ? `<br><small>${escapeHtml(event.details)}</small>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
         function filterAdapters() {
             renderAdapters();
         }
@@ -453,14 +670,14 @@
             const encodedName = encodeURIComponent(name);
             
             try {
-                const response = await fetch(`${API_BASE}/api/${action}/${encodedName}`, {
+                const response = await fetch(`${GAME_API_URL}/api/${action}/${encodedName}`, {
                     method: 'POST'
                 });
                 
                 if (!response.ok) throw new Error('Lever toggle failed');
                 
                 // Refresh to show new state
-                await fetchLevers();
+                await fetchLeversFromGame();
             } catch (err) {
                 console.error('Failed to toggle lever:', err);
                 alert(`Failed to toggle lever: ${name}`);
@@ -468,17 +685,31 @@
         }
 
         // UI updates
-        function setConnected(connected) {
-            isConnected = connected;
-            const dot = document.getElementById('connectionDot');
-            const status = document.getElementById('connectionStatus');
+        function setGameConnected(connected) {
+            gameConnected = connected;
+            const dot = document.getElementById('gameDot');
+            const status = document.getElementById('gameStatus');
             
             if (connected) {
                 dot.className = 'status-dot connected';
-                status.textContent = 'Connected';
+                status.textContent = 'Game: Connected';
             } else {
                 dot.className = 'status-dot disconnected';
-                status.textContent = 'Disconnected';
+                status.textContent = 'Game: Disconnected';
+            }
+        }
+
+        function setControllerConnected(connected) {
+            controllerConnected = connected;
+            const dot = document.getElementById('controllerDot');
+            const status = document.getElementById('controllerStatus');
+            
+            if (connected) {
+                dot.className = 'status-dot connected';
+                status.textContent = 'Controller: Connected';
+            } else {
+                dot.className = 'status-dot disconnected';
+                status.textContent = 'Controller: Offline';
             }
         }
 
@@ -486,10 +717,6 @@
             const now = new Date();
             const timeStr = now.toLocaleTimeString();
             document.getElementById('lastUpdate').textContent = timeStr;
-        }
-
-        function showConfig() {
-            alert('Category configuration: Use the filter boxes to search adapters and levers by name. Categories are determined by the adapter/lever names you set in-game.');
         }
 
         // Utility

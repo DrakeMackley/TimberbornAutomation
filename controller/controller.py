@@ -2,15 +2,19 @@
 """
 Timberborn Automation Controller
 
-Reads HTTP Adapters (sensors) and triggers HTTP Levers (actuators)
-based on configurable rules with AND/OR conditions.
+Event-driven automation that reacts to HTTP Adapter webhooks
+and toggles HTTP Levers based on configurable rules.
 """
 
 import time
 import logging
 import sys
-from urllib.parse import quote
+import json
+import threading
+from urllib.parse import quote, unquote
 from typing import Dict, List, Any
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from collections import deque
 import yaml
 import requests
 
@@ -26,15 +30,44 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class AutomationEvent:
+    """Represents an automation event for logging/display."""
+    def __init__(self, event_type: str, name: str, state: bool = None, details: str = None):
+        self.timestamp = time.time()
+        self.type = event_type  # "adapter", "lever", "rule"
+        self.name = name
+        self.state = state
+        self.details = details
+    
+    def to_dict(self):
+        return {
+            "timestamp": self.timestamp,
+            "type": self.type,
+            "name": self.name,
+            "state": self.state,
+            "details": self.details
+        }
+
+
 class TimberbornController:
     def __init__(self, config_path: str = "config.yaml"):
         """Initialize the controller with a config file."""
         self.config = self._load_config(config_path)
-        self.api_base = self.config.get('api_base', 'http://localhost:8080')
-        self.polling_interval = self.config.get('polling_interval_seconds', 2)
+        self.mode = self.config.get('mode', 'webhook')
+        self.api_base = self.config.get('game_api_url', 'http://localhost:8080')
+        self.webhook_port = self.config.get('webhook_port', 8081)
+        self.polling_interval = self.config.get('polling_interval_seconds', 5)
         self.rules = self.config.get('rules', [])
-        self.last_adapter_state: Dict[str, bool] = {}
-        self.last_lever_state: Dict[str, bool] = {}
+        
+        # State tracking
+        self.adapter_states: Dict[str, bool] = {}
+        self.lever_states: Dict[str, bool] = {}
+        self.events = deque(maxlen=100)  # Keep last 100 events
+        self.state_lock = threading.Lock()
+        
+        # Server reference
+        self.http_server = None
+        self.server_thread = None
         
     def _load_config(self, path: str) -> dict:
         """Load YAML configuration file."""
@@ -48,7 +81,12 @@ class TimberbornController:
             logger.error(f"Invalid YAML in config: {e}")
             sys.exit(1)
     
-    def _get_adapters(self) -> List[Dict[str, Any]]:
+    def _log_event(self, event: AutomationEvent):
+        """Log and store an event."""
+        with self.state_lock:
+            self.events.append(event)
+    
+    def _get_adapters_from_api(self) -> List[Dict[str, Any]]:
         """Fetch current adapter states from the game API."""
         try:
             response = requests.get(f"{self.api_base}/api/adapters", timeout=5)
@@ -58,7 +96,7 @@ class TimberbornController:
             logger.debug(f"Failed to fetch adapters: {e}")
             return []
     
-    def _get_levers(self) -> List[Dict[str, Any]]:
+    def _get_levers_from_api(self) -> List[Dict[str, Any]]:
         """Fetch current lever states from the game API."""
         try:
             response = requests.get(f"{self.api_base}/api/levers", timeout=5)
@@ -67,6 +105,20 @@ class TimberbornController:
         except requests.RequestException as e:
             logger.debug(f"Failed to fetch levers: {e}")
             return []
+    
+    def _sync_state_from_api(self):
+        """Sync adapter and lever states from game API."""
+        adapters = self._get_adapters_from_api()
+        levers = self._get_levers_from_api()
+        
+        with self.state_lock:
+            if adapters:
+                self.adapter_states = {a['name']: a['state'] for a in adapters}
+                logger.info(f"Synced {len(adapters)} adapters from API")
+            
+            if levers:
+                self.lever_states = {l['name']: l['state'] for l in levers}
+                logger.info(f"Synced {len(levers)} levers from API")
     
     def _trigger_lever(self, lever_name: str, action: str) -> bool:
         """Trigger a lever action (on/off)."""
@@ -77,13 +129,24 @@ class TimberbornController:
         try:
             response = requests.post(url, timeout=5)
             response.raise_for_status()
+            
+            # Update local state
+            new_state = (action == "on")
+            with self.state_lock:
+                self.lever_states[lever_name] = new_state
+            
             logger.info(f"✓ Lever '{lever_name}' switched {action.upper()}")
+            
+            # Log event
+            event = AutomationEvent("lever", lever_name, new_state, f"Toggled {action}")
+            self._log_event(event)
+            
             return True
         except requests.RequestException as e:
             logger.warning(f"Failed to trigger lever '{lever_name}': {e}")
             return False
     
-    def _evaluate_conditions(self, conditions: dict, adapter_states: Dict[str, bool]) -> bool:
+    def _evaluate_conditions(self, conditions: dict) -> bool:
         """Evaluate rule conditions against current adapter states."""
         checks = conditions.get('checks', [])
         operator = conditions.get('operator', 'OR').upper()
@@ -92,28 +155,31 @@ class TimberbornController:
             return False
         
         results = []
-        for check in checks:
-            adapter_name = check.get('adapter')
-            expected_state = check.get('state', True)
-            
-            # Get current state (default to False if adapter not found)
-            current_state = adapter_states.get(adapter_name, False)
-            results.append(current_state == expected_state)
+        with self.state_lock:
+            for check in checks:
+                adapter_name = check.get('adapter')
+                expected_state = check.get('state', True)
+                current_state = self.adapter_states.get(adapter_name, False)
+                results.append(current_state == expected_state)
         
         if operator == 'AND':
             return all(results)
         else:  # OR
             return any(results)
     
-    def _process_rules(self, adapter_states: Dict[str, bool]):
+    def _process_rules(self):
         """Process all rules and trigger actions as needed."""
         for rule in self.rules:
             rule_name = rule.get('name', 'Unnamed Rule')
             conditions = rule.get('conditions', {})
             actions = rule.get('actions', [])
             
-            if self._evaluate_conditions(conditions, adapter_states):
+            if self._evaluate_conditions(conditions):
                 logger.info(f"⚡ Rule triggered: {rule_name}")
+                
+                # Log rule event
+                event = AutomationEvent("rule", rule_name, True, "Conditions met")
+                self._log_event(event)
                 
                 for action in actions:
                     lever_name = action.get('lever')
@@ -122,18 +188,136 @@ class TimberbornController:
                     if lever_name:
                         self._trigger_lever(lever_name, lever_action)
     
-    def run(self):
-        """Main control loop."""
-        logger.info("🚀 Timberborn Controller starting...")
-        logger.info(f"Polling interval: {self.polling_interval}s")
-        logger.info(f"Loaded {len(self.rules)} rules")
+    def update_adapter_state(self, adapter_name: str, new_state: bool):
+        """Update adapter state and process rules."""
+        old_state = self.adapter_states.get(adapter_name)
         
+        with self.state_lock:
+            self.adapter_states[adapter_name] = new_state
+        
+        # Log state change
+        if old_state != new_state or old_state is None:
+            logger.info(f"📊 Adapter updated: {adapter_name} = {new_state}")
+            event = AutomationEvent("adapter", adapter_name, new_state, 
+                                   f"Changed from {old_state} to {new_state}")
+            self._log_event(event)
+        
+        # Process rules with new state
+        self._process_rules()
+    
+    def get_state_snapshot(self) -> dict:
+        """Get current system state for API queries."""
+        with self.state_lock:
+            return {
+                "adapters": dict(self.adapter_states),
+                "levers": dict(self.lever_states),
+                "events": [e.to_dict() for e in list(self.events)[-20:]],  # Last 20 events
+                "timestamp": time.time()
+            }
+    
+    def get_events(self, limit: int = 50) -> List[dict]:
+        """Get recent events."""
+        with self.state_lock:
+            events_list = list(self.events)
+            return [e.to_dict() for e in events_list[-limit:]]
+    
+    def run_webhook_server(self):
+        """Run webhook server to receive adapter events."""
+        controller = self
+        
+        class WebhookHandler(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                """Suppress default HTTP logging."""
+                pass
+            
+            def _send_json_response(self, data: dict, status: int = 200):
+                """Send JSON response."""
+                self.send_response(status)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps(data).encode())
+            
+            def do_GET(self):
+                """Handle GET requests."""
+                self._handle_request()
+            
+            def do_POST(self):
+                """Handle POST requests."""
+                self._handle_request()
+            
+            def _handle_request(self):
+                """Handle webhook calls and API queries."""
+                path = self.path
+                
+                # Adapter webhooks: /on/{name} or /off/{name}
+                if path.startswith('/on/'):
+                    adapter_name = unquote(path[4:])
+                    controller.update_adapter_state(adapter_name, True)
+                    self._send_json_response({"status": "ok", "adapter": adapter_name, "state": True})
+                    return
+                
+                elif path.startswith('/off/'):
+                    adapter_name = unquote(path[5:])
+                    controller.update_adapter_state(adapter_name, False)
+                    self._send_json_response({"status": "ok", "adapter": adapter_name, "state": False})
+                    return
+                
+                # State API: /api/state
+                elif path == '/api/state':
+                    state = controller.get_state_snapshot()
+                    self._send_json_response(state)
+                    return
+                
+                # Events API: /api/events or /api/events?limit=N
+                elif path.startswith('/api/events'):
+                    limit = 50
+                    if '?limit=' in path:
+                        try:
+                            limit = int(path.split('?limit=')[1].split('&')[0])
+                        except (ValueError, IndexError):
+                            pass
+                    
+                    events = controller.get_events(limit)
+                    self._send_json_response({"events": events})
+                    return
+                
+                # Health check
+                elif path == '/health':
+                    self._send_json_response({
+                        "status": "ok", 
+                        "mode": controller.mode,
+                        "adapters_count": len(controller.adapter_states),
+                        "levers_count": len(controller.lever_states)
+                    })
+                    return
+                
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    self.wfile.write(b'Not Found')
+        
+        try:
+            self.http_server = HTTPServer(('0.0.0.0', self.webhook_port), WebhookHandler)
+            logger.info(f"🌐 Webhook server listening on port {self.webhook_port}")
+            logger.info(f"Configure in-game adapters to call:")
+            logger.info(f"  ON:  http://localhost:{self.webhook_port}/on/{{adapter_name}}")
+            logger.info(f"  OFF: http://localhost:{self.webhook_port}/off/{{adapter_name}}")
+            self.http_server.serve_forever()
+        except OSError as e:
+            logger.error(f"Failed to start webhook server: {e}")
+            logger.error(f"Port {self.webhook_port} may already be in use")
+            sys.exit(1)
+    
+    def run_polling_loop(self):
+        """Run polling loop for adapter state sync."""
+        logger.info(f"🔄 Polling mode active (interval: {self.polling_interval}s)")
         connection_lost = False
         
         while True:
             try:
                 # Fetch current adapter states
-                adapters = self._get_adapters()
+                adapters = self._get_adapters_from_api()
                 
                 if not adapters and not connection_lost:
                     logger.warning("⚠️  Game not reachable - waiting for connection...")
@@ -145,30 +329,59 @@ class TimberbornController:
                     logger.info("✓ Connection restored")
                     connection_lost = False
                 
-                # Build state dictionary
-                adapter_states = {a['name']: a['state'] for a in adapters}
+                # Update adapter states
+                for adapter in adapters:
+                    self.update_adapter_state(adapter['name'], adapter['state'])
                 
-                # Log state changes
-                for name, state in adapter_states.items():
-                    if name not in self.last_adapter_state:
-                        logger.debug(f"Adapter detected: {name} = {state}")
-                    elif self.last_adapter_state[name] != state:
-                        logger.info(f"📊 Adapter changed: {name} = {state}")
-                
-                self.last_adapter_state = adapter_states
-                
-                # Process rules
-                self._process_rules(adapter_states)
+                # Sync lever states
+                levers = self._get_levers_from_api()
+                if levers:
+                    with self.state_lock:
+                        self.lever_states = {l['name']: l['state'] for l in levers}
                 
                 # Sleep until next poll
                 time.sleep(self.polling_interval)
                 
-            except KeyboardInterrupt:
-                logger.info("\n👋 Controller shutting down...")
-                break
             except Exception as e:
-                logger.error(f"Unexpected error: {e}", exc_info=True)
+                logger.error(f"Polling error: {e}", exc_info=True)
                 time.sleep(self.polling_interval * 2)
+    
+    def run(self):
+        """Main controller entry point."""
+        logger.info("🚀 Timberborn Controller starting...")
+        logger.info(f"Mode: {self.mode}")
+        logger.info(f"Loaded {len(self.rules)} rules")
+        
+        # Initial state sync from API
+        logger.info("Syncing initial state from game API...")
+        self._sync_state_from_api()
+        
+        try:
+            if self.mode == 'webhook':
+                # Webhook-only mode
+                self.run_webhook_server()
+            
+            elif self.mode == 'polling':
+                # Polling-only mode
+                self.run_polling_loop()
+            
+            elif self.mode == 'hybrid':
+                # Both webhook and polling
+                # Start webhook server in background thread
+                self.server_thread = threading.Thread(target=self.run_webhook_server, daemon=True)
+                self.server_thread.start()
+                
+                # Run polling in main thread
+                self.run_polling_loop()
+            
+            else:
+                logger.error(f"Invalid mode: {self.mode}. Use 'webhook', 'polling', or 'hybrid'")
+                sys.exit(1)
+        
+        except KeyboardInterrupt:
+            logger.info("\n👋 Controller shutting down...")
+            if self.http_server:
+                self.http_server.shutdown()
 
 
 if __name__ == "__main__":

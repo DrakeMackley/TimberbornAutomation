@@ -1,10 +1,19 @@
 # Timberborn Automation Controller Configuration
 
-# API endpoint (default: http://localhost:8080)
-api_base: http://localhost:8080
+# Operation mode:
+#   "webhook" - Event-driven via HTTP webhooks (recommended)
+#   "polling" - Traditional polling of adapter API
+#   "hybrid"  - Webhook primary + periodic polling sync
+mode: "webhook"
 
-# How often to poll adapter states (seconds)
-polling_interval_seconds: 2
+# Webhook server port (used in webhook/hybrid mode)
+webhook_port: 8081
+
+# Game API endpoint (default: http://localhost:8080)
+game_api_url: http://localhost:8080
+
+# Polling interval in seconds (used in polling/hybrid mode)
+polling_interval_seconds: 5
 
 # Automation rules
 # Each rule has:
