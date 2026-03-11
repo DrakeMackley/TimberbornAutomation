@@ -1,6 +1,6 @@
 # Timberborn Automation Use Cases
 
-Practical automation patterns organized by challenge. Each pattern lists the buildings involved and the wiring logic.
+50 practical automation patterns organized by challenge. Each pattern lists the buildings involved and the wiring logic.
 
 > **Convention:** `→` means "signal feeds into." `+` means "combined via relay."
 
@@ -8,14 +8,10 @@ Practical automation patterns organized by challenge. Each pattern lists the bui
 
 ## 🌊 Water Management
 
-### Drought Emergency Response
-**Challenge:** When drought hits and water levels drop, you need to activate pumps and close floodgates before reservoirs dry out.
+### 1. Drought Emergency Response
+**Challenge:** When drought hits and water levels drop, activate pumps and close floodgates before reservoirs dry out.
 
-**Buildings:**
-- Weather Station (active during: drought)
-- Depth Sensor (water level < critical threshold)
-- Relay (AND)
-- Floodgates, pumps (actuated)
+**Buildings:** Weather Station (drought) + Depth Sensor (< critical) + Relay (AND)
 
 **Wiring:**
 ```
@@ -29,14 +25,10 @@ Depth Sensor [< 0.5m]     ──→            ──→ Activate pumps
 
 ---
 
-### Floodgate Auto-Fill
+### 2. Floodgate Auto-Fill
 **Challenge:** Keep reservoirs topped off during temperate weather without overflowing.
 
-**Buildings:**
-- Weather Station (active during: temperate weather)
-- Depth Sensor (water level < desired max)
-- Relay (AND)
-- Floodgates (actuated)
+**Buildings:** Weather Station (temperate) + Depth Sensor (< max) + Relay (AND)
 
 **Wiring:**
 ```
@@ -48,13 +40,10 @@ Depth Sensor [< 3.0m]      ──→
 
 ---
 
-### Contamination Isolation
+### 3. Contamination Isolation
 **Challenge:** When badwater contamination is detected, isolate affected water systems.
 
-**Buildings:**
-- Contamination Sensor (contamination > 0%)
-- Weather Station (active during: badtide) *(optional, for early warning)*
-- Floodgates, valves (actuated)
+**Buildings:** Contamination Sensor (> 0%) + Weather Station (badtide, optional)
 
 **Wiring:**
 ```
@@ -66,13 +55,10 @@ Contamination Sensor [> 0%] ──→ Close isolation gates
 
 ---
 
-### Water Level Cascade
+### 4. Water Level Cascade
 **Challenge:** Manage a multi-tier reservoir system where upper reservoirs feed lower ones.
 
-**Buildings:**
-- Multiple Depth Sensors (one per tier)
-- Relays (priority logic)
-- Fill valves between tiers (actuated)
+**Buildings:** Multiple Depth Sensors + Relays + Fill valves
 
 **Wiring:**
 ```
@@ -84,53 +70,98 @@ Depth Sensor [lower tier < 1m] ──→ Relay (AND) ──→ Open valve from u
 
 ---
 
+### 5. Flow-Based Irrigation Control
+**Challenge:** Manage irrigation channels based on actual water flow, not just depth.
+
+**Buildings:** Flow Sensor (< threshold) + Fill valves
+
+**Wiring:**
+```
+Flow Sensor [< 0.5 m³/s] ──→ Open upstream valve to increase flow
+Flow Sensor [> 1.5 m³/s] ──→ Throttle valve to prevent erosion/overflow
+```
+
+**When to use over Depth Sensor:** Flow matters more than depth for irrigation channels — a deep but stagnant pool isn't irrigating anything.
+
+---
+
+### 6. Reservoir Overflow Protection
+**Challenge:** Prevent reservoirs from overflowing during heavy temperate rain/flow.
+
+**Buildings:** Depth Sensor (> near-max) + Floodgates/drain valves
+
+**Wiring:**
+```
+Depth Sensor [> 4.5m] ──→ Open overflow drain gates
+```
+
+**Enhancement:** Add a Timer (delay, T1: 1 hour) to avoid opening drains for brief wave surges.
+
+---
+
+### 7. Badtide Water Purge
+**Challenge:** After a badtide ends, flush contaminated water from reservoirs before reopening.
+
+**Buildings:** Weather Station (badtide) + Contamination Sensor + Relay (logic) + Memory (set-reset)
+
+**Wiring:**
+```
+Weather Station [badtide]       ──→ Memory (Set-Reset) SET     ──→ Keep isolation gates closed
+Contamination Sensor [= 0%]    ──→ Timer (Accum, 2h)          ──→ Memory RESET (safe to reopen)
+```
+
+**Logic:** Locks down when badtide starts. Stays locked even after badtide ends. Only reopens after contamination has been at 0% for 2 continuous hours (safe confirmation).
+
+---
+
+### 8. Drought Water Rationing
+**Challenge:** During drought, reduce water consumption by throttling non-essential water users.
+
+**Buildings:** Weather Station (drought) + Depth Sensor (< medium threshold) + Relay (AND)
+
+**Wiring:**
+```
+Weather Station [drought] ──→ Relay (AND) ──→ Throttle decorative fountains
+Depth Sensor [< 2.0m]    ──→             ──→ Reduce irrigation flow
+                                          ──→ Shut down baths/leisure water
+```
+
+**Tiered version:** Use multiple Depth Sensors at different thresholds for escalating rationing.
+
+---
+
 ## 📦 Resource Management
 
-### Low Stock Auto-Boost
+### 9. Low Stock Auto-Boost
 **Challenge:** When a critical resource drops below threshold, boost production.
 
-**Buildings:**
-- Resource Counter (resource: Logs, mode: quantity, < 50)
-- Workplace: Forester/Lumberjack (actuated)
+**Buildings:** Resource Counter (quantity < threshold) + Workplace (actuated)
 
 **Wiring:**
 ```
 Resource Counter [Logs < 50] ──→ Activate extra Forester hut
 ```
 
-**Scaling:** Place multiple Resource Counters for different resources, each controlling a different workplace:
-```
-Resource Counter [Planks < 30]  ──→ Activate Lumber Mill #2
-Resource Counter [Gears < 20]  ──→ Activate Gear Workshop #2
-Resource Counter [Bread < 40]  ──→ Activate Bakery #2
-```
+**Scaling:** One counter per resource, each controlling its production building.
 
 ---
 
-### Storage Overflow Prevention
+### 10. Storage Overflow Prevention
 **Challenge:** Pause production when storage is nearly full to avoid wasted labor.
 
-**Buildings:**
-- Resource Counter (resource: Planks, mode: percent, > 90%)
-- Relay (NOT)
-- Workplace: Lumber Mill (actuated)
+**Buildings:** Resource Counter (percent > 90%) + Relay (NOT) + Workplace
 
 **Wiring:**
 ```
 Resource Counter [Planks > 90%] ──→ Relay (NOT) ──→ Deactivate Lumber Mill
 ```
 
-**Logic:** When storage is over 90% full, the NOT relay inverts the signal to shut down production. When it drops back below 90%, production resumes automatically.
-
 ---
 
-### Production Chain Balancing
+### 11. Production Chain Balancing
 **Challenge:** Balance upstream and downstream production (e.g., logs → planks → gears).
 
-**Buildings:**
-- Resource Counter × 3 (Logs, Planks, Gears)
-- Relays (logic chain)
-- Workplaces (actuated)
+**Buildings:** Resource Counter × 3 + Relays + Workplaces
 
 **Wiring:**
 ```
@@ -139,18 +170,14 @@ Resource Counter [Planks < 20]  ──→ Boost Lumber Mill + Pause Gear Worksho
 Resource Counter [Gears < 10]   ──→ Boost Gear Workshop
 ```
 
-**Key insight:** Use the NOT relay to create inverse relationships — when logs are low, shut down the thing that consumes logs (Lumber Mill) while boosting the thing that produces logs (Forester).
+**Key insight:** Use NOT relays to create inverse relationships — when logs are low, shut down the consumer while boosting the producer.
 
 ---
 
-### Seasonal Resource Strategy
+### 12. Seasonal Resource Stockpiling
 **Challenge:** Stockpile critical resources before drought.
 
-**Buildings:**
-- Weather Station (active during: temperate, with "Activate early" for drought prep)
-- Resource Counter (food < 100)
-- Relay (AND)
-- Farms, gathering (actuated)
+**Buildings:** Weather Station (temperate) + Resource Counter + Relay (AND)
 
 **Wiring:**
 ```
@@ -158,26 +185,76 @@ Weather Station [temperate] ──→ Relay (AND) ──→ Activate all farms a
 Resource Counter [Food < 100] ──→
 ```
 
-**Enhancement:** Use a Timer (accumulator) to track how long drought has been active, escalating response intensity over time.
+---
+
+### 13. Food Diversity Monitor
+**Challenge:** Ensure multiple food types are stocked, not just one.
+
+**Buildings:** Multiple Resource Counters (one per food type) + Relay (OR) + Indicator
+
+**Wiring:**
+```
+Resource Counter [Berries < 10]  ──→ Relay (OR) ──→ Indicator [Food Diversity Warning]
+Resource Counter [Bread < 10]    ──→
+Resource Counter [Potatoes < 10] ──→
+```
+
+**Advanced version:** Use individual indicators per food type for the in-game dashboard, plus an OR relay feeding a master "food diversity critical" alert.
+
+---
+
+### 14. Construction Material Reserve
+**Challenge:** Keep a minimum reserve of construction materials so building projects aren't stalled.
+
+**Buildings:** Resource Counter (Logs, Planks, or Gears in quantity mode, "include inputs" unchecked)
+
+**Wiring:**
+```
+Resource Counter [Planks < 20, exclude inputs] ──→ Activate extra Lumber Mill
+```
+
+**Why "exclude inputs"?** You want to know what's actually *in storage*, not what's being carried. If 15 planks are in transit but storage is empty, you still can't build.
+
+---
+
+### 15. Surplus Export Control
+**Challenge:** Only export resources to other districts when you have a healthy surplus.
+
+**Buildings:** Resource Counter (percent > 60%) + Relay (AND) + Distribution buildings
+
+**Wiring:**
+```
+Resource Counter [Logs > 60%] ──→ Activate log distribution post
+```
+
+**Logic:** Only share resources when storage is comfortably above half. Below that, keep everything local.
+
+---
+
+### 16. Drought Food Emergency
+**Challenge:** When drought depletes water-dependent food sources, switch to drought-resistant production.
+
+**Buildings:** Weather Station (drought) + Resource Counter (food) + Relay (AND) + Workplaces
+
+**Wiring:**
+```
+Weather Station [drought]         ──→ Deactivate irrigated farms
+                                  ──→ Relay (AND) ──→ Activate dried food processing
+Resource Counter [Food < 60]      ──→
+```
+
+**Logic:** Always shut down irrigated farms in drought (no water). Only activate emergency food processing if food is also getting low.
 
 ---
 
 ## ⚡ Power Management
 
-### Load Shedding
+### 17. Load Shedding
 **Challenge:** When power demand exceeds supply, shed non-essential loads.
 
-**Buildings:**
-- Power Meter (metric: surplus, < 0)
-- Non-essential workplaces (actuated)
+**Buildings:** Power Meter (surplus < 0)
 
-**Wiring:**
-```
-Power Meter [Surplus < 0] ──→ Deactivate non-essential buildings
-                              (decorative, secondary production, etc.)
-```
-
-**Priority tiers:** Wire multiple Power Meters at different thresholds:
+**Wiring (priority tiers):**
 ```
 Power Meter [Surplus < 0]    ──→ Shed tier 3 (luxury)
 Power Meter [Surplus < -50]  ──→ Shed tier 2 (secondary production)
@@ -186,29 +263,23 @@ Power Meter [Surplus < -100] ──→ Shed tier 1 (keep only food + water)
 
 ---
 
-### Battery Conservation
+### 18. Battery Conservation
 **Challenge:** Preserve battery charge for nighttime or drought.
 
-**Buildings:**
-- Power Meter (metric: battery charge, < 50)
-- Chronometer (active during: non-working hours)
-- Relay (AND/OR logic)
-- Power consumers (actuated)
+**Buildings:** Power Meter (battery < 50) + Chronometer (night) + Relay (AND)
 
 **Wiring:**
 ```
-Power Meter [Battery < 50%] ──→ Reduce non-essential power consumers
-Chronometer [night hours]   ──→ Relay (AND) ──→ Only run essentials at night when battery is low
+Power Meter [Battery < 50%] ──→ Relay (AND) ──→ Only run essentials at night when battery low
+Chronometer [night hours]   ──→
 ```
 
 ---
 
-### Drought Power Switch
-**Challenge:** Switch from water-based power (waterwheels) to alternative power during drought.
+### 19. Drought Power Switch
+**Challenge:** Switch from water-based power to alternative power during drought.
 
-**Buildings:**
-- Weather Station (active during: drought)
-- Power generators (actuated)
+**Buildings:** Weather Station (drought) + Power generators
 
 **Wiring:**
 ```
@@ -218,50 +289,71 @@ Weather Station [drought] ──→ Deactivate water wheels (no water flow)
 
 ---
 
-## 🏠 Population & Workforce
+### 20. Peak Demand Scheduling
+**Challenge:** Stagger power-hungry buildings to avoid simultaneous demand spikes.
 
-### Housing Alert
-**Challenge:** Know when you need more housing before beavers become homeless.
-
-**Buildings:**
-- Population Counter (metric: free beds, < 5)
-- Indicator (pinned, show warning)
+**Buildings:** Timer (oscillator) × multiple + Power-heavy workplaces
 
 **Wiring:**
 ```
-Population Counter [Free beds < 5] ──→ Indicator [warning ON]
+Timer A (Oscillator, T1: 4h ON, T2: 4h OFF, offset 0h)  ──→ Smelter #1
+Timer B (Oscillator, T1: 4h ON, T2: 4h OFF, offset 4h)  ──→ Smelter #2
 ```
 
-**Enhancement:** Add journal entry logging to track when housing pressure starts.
+**Logic:** Stagger oscillators so heavy consumers never run simultaneously. Halves your peak power demand.
 
 ---
 
-### Unemployment Response
+### 21. Renewable Priority
+**Challenge:** Prefer renewable power sources and only use engines when renewables fall short.
+
+**Buildings:** Power Meter (supply < demand) + Relay (AND) + Engines
+
+**Wiring:**
+```
+Power Meter [Surplus < 0]   ──→ Activate backup engines
+Power Meter [Surplus >= 20] ──→ Relay (NOT) ──→ Deactivate engines (renewables sufficient)
+```
+
+**Use hysteresis** (see pattern #42) to prevent engine flicker when supply hovers near demand.
+
+---
+
+## 🏠 Population & Workforce
+
+### 22. Housing Alert
+**Challenge:** Know when you need more housing before beavers become homeless.
+
+**Buildings:** Population Counter (free beds < 5) + Indicator (pinned, warning)
+
+**Wiring:**
+```
+Population Counter [Free beds < 5] ──→ Indicator [warning ON, journal entry]
+```
+
+---
+
+### 23. Unemployment Response
 **Challenge:** Automatically adjust production capacity based on available workforce.
 
-**Buildings:**
-- Population Counter (metric: unemployed, > 5)
-- Dormant workplaces (actuated)
+**Buildings:** Population Counter (unemployed > 5) + Dormant workplaces
 
 **Wiring:**
 ```
 Population Counter [Unemployed > 5] ──→ Activate expansion workplace
 ```
 
-**Inverse:** If vacancies are high, pause low-priority workplaces:
+**Inverse:**
 ```
 Population Counter [Vacancies > 10] ──→ Relay (NOT) ──→ Pause luxury production
 ```
 
 ---
 
-### Contamination Workforce Compensation
-**Challenge:** When workers get contaminated, boost essential production to compensate for reduced workforce.
+### 24. Contamination Workforce Compensation
+**Challenge:** When workers get contaminated, boost essential production to compensate.
 
-**Buildings:**
-- Population Counter (metric: contaminated adults, > 3)
-- Essential workplaces (actuated — boost priority)
-- Non-essential workplaces (actuated — pause)
+**Buildings:** Population Counter (contaminated adults > 3) + Workplaces
 
 **Wiring:**
 ```
@@ -271,14 +363,54 @@ Population Counter [Contaminated > 3] ──→ Pause non-essentials
 
 ---
 
+### 25. Population Growth Control
+**Challenge:** Manage population growth by controlling housing availability.
+
+**Buildings:** Population Counter (total population) + Resource Counter (food) + Relay (AND) + Housing
+
+**Wiring:**
+```
+Population Counter [Population > 80] ──→ Relay (AND) ──→ Deactivate extra housing
+Resource Counter [Food < 100]        ──→
+```
+
+**Logic:** If population is high AND food reserves are low, stop providing new housing. Population stabilizes naturally.
+
+---
+
+### 26. Child-to-Adult Ratio Workforce Planning
+**Challenge:** Anticipate future workforce by monitoring children who will become workers.
+
+**Buildings:** Population Counter (children > threshold) + Timer (delay) + Expansion workplaces
+
+**Wiring:**
+```
+Population Counter [Children > 10] ──→ Timer (Delay, T1: several days) ──→ Pre-activate workplaces
+```
+
+**Logic:** A large cohort of children means a workforce boom is coming. Start building capacity now so there are jobs waiting when they grow up.
+
+---
+
+### 27. Bot Workforce Expansion
+**Challenge:** Supplement beaver workforce with bots when organic workers are insufficient.
+
+**Buildings:** Population Counter (vacancies > threshold) + Bot-related workplaces
+
+**Wiring:**
+```
+Population Counter [Vacancies > 15] ──→ Activate bot assembly
+Population Counter [Vacancies < 3]  ──→ Relay (NOT) ──→ Pause bot assembly
+```
+
+---
+
 ## ⏰ Time-Based Automation
 
-### Day/Night Production Cycling
-**Challenge:** Run noisy or power-hungry production only during work hours.
+### 28. Day/Night Production Cycling
+**Challenge:** Run power-hungry production only during work hours.
 
-**Buildings:**
-- Chronometer (active during: working hours)
-- Workplaces (actuated)
+**Buildings:** Chronometer (working hours) + Workplaces
 
 **Wiring:**
 ```
@@ -287,46 +419,80 @@ Chronometer [working hours] ──→ Activate factory production
 
 ---
 
-### Periodic Maintenance Cycles
-**Challenge:** Run a pump or valve for X hours, then pause for Y hours.
+### 29. Periodic Maintenance Cycles
+**Challenge:** Run a pump or valve on a duty cycle.
 
-**Buildings:**
-- Timer (oscillator mode, T1: run duration, T2: pause duration)
-- Lever or sensor (trigger input)
-- Workplace/valve (actuated)
+**Buildings:** Timer (oscillator) + Lever (trigger) + Pump/valve
 
 **Wiring:**
 ```
-Lever [ON] ──→ Timer (Oscillator, T1: 6 hours ON, T2: 2 hours OFF) ──→ Pump
+Lever [ON] ──→ Timer (Oscillator, T1: 6h ON, T2: 2h OFF) ──→ Pump
 ```
 
 ---
 
-### Delayed Emergency Escalation
+### 30. Delayed Emergency Escalation
 **Challenge:** Don't overreact to brief sensor blips — only escalate if a condition persists.
 
-**Buildings:**
-- Any sensor (trigger)
-- Timer (accumulator, T1: threshold duration)
-- Emergency response buildings (actuated)
+**Buildings:** Sensor + Timer (accumulator) + Emergency buildings
 
 **Wiring:**
 ```
-Depth Sensor [< 0.3m] ──→ Timer (Accumulator, T1: 2 hours) ──→ EMERGENCY: activate all pumps
+Depth Sensor [< 0.3m] ──→ Timer (Accumulator, T1: 2 hours) ──→ EMERGENCY: all pumps ON
 ```
 
-**Logic:** The accumulator only fires after the low-water condition has persisted for 2 continuous hours. Brief dips won't trigger a false alarm.
+**Logic:** Only fires after low-water has persisted for 2 continuous hours. Brief dips don't trigger false alarms.
+
+---
+
+### 31. Nighttime Security Lockdown
+**Challenge:** Close district gates at night to keep beavers safe.
+
+**Buildings:** Chronometer (non-working hours) + Gates
+
+**Wiring:**
+```
+Chronometer [non-working hours] ──→ Close outer district gates
+```
+
+---
+
+### 32. Seasonal Work Schedule
+**Challenge:** Shift production focus based on season — farm-heavy in temperate, processing-heavy in drought.
+
+**Buildings:** Weather Station + Chronometer + Workplaces
+
+**Wiring:**
+```
+Weather Station [temperate] ──→ Activate farms, foresters, gathering
+Weather Station [drought]   ──→ Activate processing (bakeries, mills, workshops)
+                            ──→ Deactivate farms (nothing grows anyway)
+```
+
+**Logic:** Don't waste drought labor on farms that can't produce. Shift the workforce to processing stored raw materials.
+
+---
+
+### 33. Timed Breeding Pulse
+**Challenge:** Control population growth by enabling housing in timed bursts.
+
+**Buildings:** Timer (pulse, T1: 2 days) + Lever (manual trigger) + Housing
+
+**Wiring:**
+```
+Lever [manual ON] ──→ Timer (Pulse, T1: 2 days) ──→ Activate breeding pods/extra housing
+```
+
+**Logic:** Manual lever trigger allows exactly one 2-day breeding pulse. Housing deactivates automatically after the pulse. Precise population control.
 
 ---
 
 ## 🔔 Monitoring & Alerts
 
-### Colony Health Dashboard (In-Game)
+### 34. Colony Health Dashboard (In-Game)
 **Challenge:** See colony status at a glance without clicking through buildings.
 
-**Buildings:**
-- Multiple sensors (one per metric)
-- Indicators (pinned, color-coded)
+**Buildings:** Multiple sensors + Indicators (pinned, color-coded)
 
 **Wiring:**
 ```
@@ -336,35 +502,29 @@ Population Counter [Homeless > 0]  ──→ Indicator [YELLOW, pinned, warning]
 Power Meter [Surplus < 0]          ──→ Indicator [RED, pinned, warning]
 ```
 
-**With "replicate input color":** If your input signals carry color data, indicators can match them for richer visual feedback.
-
 ---
 
-### External Dashboard via HTTP
-**Challenge:** Monitor colony from a web browser while playing (or on a second monitor).
+### 35. External Dashboard via HTTP
+**Challenge:** Monitor colony from a web browser (second monitor setup).
 
-**Buildings:**
-- Any sensors you want to monitor → HTTP Adapters (one per metric)
+**Buildings:** Sensors → HTTP Adapters
 
 **Wiring:**
 ```
 Resource Counter [Food < 50]  ──→ HTTP Adapter "Food Low"
-                                  Call when switched on:  http://localhost:8081/on/Food%20Low
-                                  Call when switched off: http://localhost:8081/off/Food%20Low
+                                  ON:  http://localhost:8081/on/Food%20Low
+                                  OFF: http://localhost:8081/off/Food%20Low
 
 Depth Sensor [Water < 1m]    ──→ HTTP Adapter "Water Critical"
                                   ...same pattern...
 ```
 
-**Result:** External dashboard receives real-time push notifications of state changes.
-
 ---
 
-### Audio Alerts for Critical Events
-**Challenge:** Get an audible warning when something needs immediate attention (useful when zoomed in elsewhere on the map).
+### 36. Audio Alerts for Critical Events
+**Challenge:** Get an audible warning for urgent situations (useful when zoomed elsewhere on the map).
 
-**Buildings:**
-- Critical sensor → Speaker (non-spatial, play once)
+**Buildings:** Critical sensor → Speaker (non-spatial, play once)
 
 **Wiring:**
 ```
@@ -373,14 +533,57 @@ Weather Station [drought] ──→ Speaker [non-spatial, play once, alarm sound
 
 ---
 
+### 37. Multi-Level Warning System
+**Challenge:** Escalating alerts — yellow warning, then red alarm, then audio.
+
+**Buildings:** Multiple sensors at different thresholds + Indicators + Speaker
+
+**Wiring:**
+```
+Resource Counter [Food < 80]  ──→ Indicator [YELLOW, pinned]         (advisory)
+Resource Counter [Food < 40]  ──→ Indicator [RED, pinned, warning]   (warning)
+Resource Counter [Food < 15]  ──→ Speaker [alarm, non-spatial]       (critical)
+                              ──→ Indicator [RED, journal entry]
+```
+
+---
+
+### 38. Automation System Health Monitor
+**Challenge:** Verify that your automation is working correctly.
+
+**Buildings:** Lever (test signal) + Relay (passthrough chain) + Indicator (end of chain)
+
+**Wiring:**
+```
+Lever [test] ──→ Relay (Pass) ──→ Relay (Pass) ──→ ... ──→ Indicator [system OK]
+```
+
+**Logic:** Toggle the test lever. If the indicator at the end of the chain lights up, your entire logic chain is wired correctly. A debugging tool for complex setups.
+
+---
+
+### 39. District Status Beacons
+**Challenge:** Monitor multiple districts from your main base.
+
+**Buildings:** Per-district sensors + Indicators (pinned always, replicate color)
+
+**Wiring (per district):**
+```
+Population Counter [district, homeless > 0]  ──→ Indicator "District A Housing"
+Resource Counter [district, food < 20]       ──→ Indicator "District A Food"
+Depth Sensor [district reservoir]            ──→ Indicator "District A Water"
+```
+
+**Enhancement:** Use color replication on indicators — green means OK, red means alert, visible from anywhere on the map.
+
+---
+
 ## 🎆 Fun & Celebrations
 
-### Population Milestone Fireworks
+### 40. Population Milestone Fireworks
 **Challenge:** Celebrate when your colony hits a population milestone.
 
-**Buildings:**
-- Population Counter (total population > milestone)
-- Firework Launcher(s)
+**Buildings:** Population Counter (> milestone) + Firework Launchers
 
 **Wiring:**
 ```
@@ -389,42 +592,68 @@ Population Counter [Population > 100] ──→ Firework Launcher [Kamuro gold, 
 
 ---
 
-### Automated Dam Break
+### 41. Automated Dam Break
 **Challenge:** Controlled demolition of a temporary dam when water levels are sufficient.
 
-**Buildings:**
-- Depth Sensor (water > target level)
-- Timer (delay — give yourself time to save!)
-- Detonator
+**Buildings:** Depth Sensor + Timer (delay) + Detonator
 
 **Wiring:**
 ```
 Depth Sensor [> 4m] ──→ Timer (Delay, T1: 30 seconds) ──→ Detonator ──→ 💥
 ```
 
-**⚠️ IRREVERSIBLE.** Test your wiring thoroughly before connecting a detonator. Consider adding a manual Lever as a safety interlock (AND with the sensor so both must be active).
+**⚠️ IRREVERSIBLE.** Add a manual Lever as a safety interlock (AND with sensor so both must be active).
+
+---
+
+### 42. Drought Survival Celebration
+**Challenge:** Automatically celebrate when the colony survives a drought.
+
+**Buildings:** Weather Station (temperate) + Memory (toggle) + Timer (pulse) + Fireworks + Speaker
+
+**Wiring:**
+```
+Weather Station [drought]   ──→ Memory (Set-Reset) SET
+Weather Station [temperate] ──→ Memory RESET ──→ Timer (Pulse, T1: 30 ticks) ──→ Fireworks!
+                                                                              ──→ Speaker [fanfare]
+```
+
+**Logic:** Memory tracks that a drought happened. When temperate returns and resets the memory, the pulse fires a one-time celebration. No celebration if there was no drought to survive.
+
+---
+
+### 43. Science Milestone Announcements
+**Challenge:** Mark research progress with in-game fanfare.
+
+**Buildings:** Science Counter (> milestones) + Firework Launchers + Speaker
+
+**Wiring:**
+```
+Science Counter [> 500]  ──→ Timer (Pulse, T1: 10 ticks) ──→ Firework [Peony violet]
+Science Counter [> 1000] ──→ Timer (Pulse, T1: 20 ticks) ──→ Firework [Palm gold] × 3
+```
 
 ---
 
 ## 🧠 Advanced Patterns
 
-### Priority System
+### 44. Priority System
 **Challenge:** When multiple resources are low, prioritize the most critical.
 
 **Pattern:** Use layered NOT gates to create priority tiers:
 ```
 Resource Counter [Food < 20]   ──→ Priority 1: ALL non-food production stops
 Resource Counter [Water < 1m]  ──→ Priority 1: Emergency pumps activate
-Resource Counter [Logs < 30]   ──→ Priority 2: Boost forestry (only if food is OK)
+Resource Counter [Logs < 30]   ──→ Priority 2: Boost forestry (only if food OK)
 Resource Counter [Gears < 10]  ──→ Priority 3: Boost gears (only if food + logs OK)
 ```
 
-Wire higher-priority signals through NOT relays to suppress lower-priority actions when critical resources need attention.
+Wire higher-priority signals through NOT relays to suppress lower-priority actions.
 
 ---
 
-### Hysteresis (Anti-Flicker)
-**Challenge:** A sensor right at its threshold causes rapid on/off toggling, which is annoying and wasteful.
+### 45. Hysteresis (Anti-Flicker)
+**Challenge:** A sensor at its threshold causes rapid on/off toggling.
 
 **Pattern:** Use Memory (Set-Reset) with two sensors at different thresholds:
 ```
@@ -432,14 +661,14 @@ Resource Counter [Logs < 30]  ──→ Memory (Set-Reset) SET    ──→ Acti
 Resource Counter [Logs > 60]  ──→ Memory (Set-Reset) RESET
 ```
 
-**Logic:** Production activates when logs drop below 30, and doesn't deactivate until logs exceed 60. This creates a dead zone that prevents flicker.
+**Logic:** Creates a dead zone between 30–60 that prevents flicker. Production starts at 30, doesn't stop until 60.
 
 ---
 
-### Timed Drought Response Escalation
+### 46. Timed Drought Response Escalation
 **Challenge:** Escalate emergency measures the longer a drought persists.
 
-**Pattern:** Chain multiple timers with increasing durations:
+**Pattern:** Chain accumulators:
 ```
 Weather Station [drought] ──→ Timer (Accum, 0h)  ──→ Phase 1: Close outer gates
                           ──→ Timer (Accum, 6h)  ──→ Phase 2: Activate pumps, reduce power
@@ -449,16 +678,89 @@ Weather Station [drought] ──→ Timer (Accum, 0h)  ──→ Phase 1: Close 
 
 ---
 
-### External Multi-Condition Logic
-**Challenge:** Rules too complex for in-game relay chains (e.g., "if food < 50 AND population > 80 AND drought active AND power surplus > 0, THEN ...").
+### 47. External Multi-Condition Logic
+**Challenge:** Rules too complex for in-game relay chains.
 
-**Pattern:** Wire each sensor to an HTTP Adapter. Let the external controller handle the complex logic:
+**Pattern:** Bridge to external controller:
 ```
-Sensors ──→ HTTP Adapters ──→ External Controller (Python) ──→ HTTP Levers ──→ Actuate buildings
+Sensors ──→ HTTP Adapters ──→ External Controller (Python) ──→ HTTP Levers ──→ Buildings
 ```
 
 The controller's YAML config can express arbitrarily complex rules that would require dozens of in-game relays.
 
 ---
 
-*Last updated: March 2026 | Timberborn 1.0*
+### 48. State Machine Colony Manager
+**Challenge:** Colony operates in distinct modes (Growth, Maintenance, Drought Prep, Emergency) with different building configurations per mode.
+
+**Pattern:** Use Memory cells to define states, with transition logic:
+```
+                    ┌─── Memory A (Growth Mode) ──→ All production ON, extra housing ON
+                    │
+Sensor inputs ──→ Logic ─── Memory B (Maintenance) ──→ Balanced production, normal housing
+                    │
+                    └─── Memory C (Emergency) ──→ Essentials only, all reserves open
+```
+
+**Transitions:**
+- Growth → Maintenance: Population Counter [> 80] flips state
+- Maintenance → Emergency: Weather Station [drought] + Depth Sensor [< 1m]
+- Emergency → Maintenance: Weather Station [temperate] + Timer (delay, ensure stability)
+
+**This is the most complex in-game automation pattern** — essentially a finite state machine built from Memory cells and relays. For extreme complexity, offload to the external controller.
+
+---
+
+### 49. Adaptive Production Optimizer
+**Challenge:** Automatically optimize resource production ratios based on real-time consumption.
+
+**Pattern:** Use oscillating timers to create sampling windows:
+```
+Timer (Oscillator, T1: 1 day, T2: 1 tick) ──→ "Sample" trigger
+
+On each sample:
+  Resource Counter [Logs] state ──→ Memory (Latch) ──→ "Logs snapshot"
+  Compare snapshot to previous via relay chain
+  If declining: boost production
+  If stable/growing: maintain or reduce
+```
+
+**Reality check:** This pushes in-game logic to its limits. Easier to implement via external controller reading adapter states over time and computing trends. The controller can track adapter state history and make trend-based decisions that pure binary signals can't express.
+
+---
+
+### 50. Full Colony Autopilot
+**Challenge:** A comprehensive automation system that handles water, resources, power, and population with minimal player intervention.
+
+**Pattern:** Combines patterns from this guide into a layered system:
+
+**Layer 1 — Monitoring (always on):**
+- All sensors → Indicators (colony dashboard, pattern #34)
+- All sensors → HTTP Adapters (external dashboard, pattern #35)
+
+**Layer 2 — Reactive (event-driven):**
+- Weather Station → drought/badtide response (patterns #1, #3, #19)
+- Resource Counters → production balancing (pattern #11)
+- Power Meter → load shedding (pattern #17)
+
+**Layer 3 — Proactive (time-based):**
+- Chronometer → day/night cycling (pattern #28)
+- Timer oscillators → maintenance cycles (pattern #29)
+- Seasonal work schedule (pattern #32)
+
+**Layer 4 — Strategic (external controller):**
+- HTTP bridge → complex multi-condition logic (pattern #47)
+- State machine mode management (pattern #48)
+- Trend analysis and adaptive optimization (pattern #49)
+
+**Layer 5 — Safety (override):**
+- Hysteresis on all thresholds (pattern #45)
+- Delayed escalation to prevent false alarms (pattern #30)
+- Priority system ensures critical needs override everything (pattern #44)
+- Manual lever safety interlocks on all destructive actions
+
+**The goal isn't to remove the player — it's to free the player to focus on design, expansion, and creativity while the colony runs itself smoothly.**
+
+---
+
+*50 patterns | Last updated: March 2026 | Timberborn 1.0*
