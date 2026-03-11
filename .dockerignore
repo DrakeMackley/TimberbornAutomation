@@ -1,0 +1,39 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Config (use example, not user config)
+controller/config.yaml
+
+# Docs (included explicitly in Dockerfile)
+*.md
+!controller/README.md
+!dashboard/README.md
+
+# Misc
+.DS_Store
+Thumbs.db

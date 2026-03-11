@@ -9,8 +9,11 @@ mode: "webhook"
 # Webhook server port (used in webhook/hybrid mode)
 webhook_port: 8081
 
-# Game API endpoint (default: http://localhost:8080)
-game_api_url: http://localhost:8080
+# Game API endpoint
+# Docker: Use host.docker.internal to reach the host's localhost (works on Docker Desktop)
+# Linux: Uncomment extra_hosts in docker-compose.yml or use host IP directly
+# Non-Docker: Use http://localhost:8080
+game_api_url: http://host.docker.internal:8080
 
 # Polling interval in seconds (used in polling/hybrid mode)
 polling_interval_seconds: 5

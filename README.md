@@ -11,39 +11,50 @@ Two pillars:
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        TIMBERBORN                                 │
-│                                                                   │
-│  Sensors ──→ In-Game Logic ──→ Actuators                          │
-│    │              │                │                               │
-│    ▼              ▼                ▼                               │
-│  HTTP Adapters  Relays/Timers   HTTP Levers                       │
-│  (state out)    (simple rules)  (control in)                      │
-└────┬──────────────────────────────────┬──────────────────────────┘
-     │           localhost:8080          │
+┌──────────────────────────────────────────────────────────────────┐
+│                    TIMBERBORN (HOST)                               │
+│                                                                    │
+│  Sensors ──→ In-Game Logic ──→ Actuators                           │
+│    │              │                │                                │
+│    ▼              ▼                ▼                                │
+│  HTTP Adapters  Relays/Timers   HTTP Levers                        │
+│  (state out)    (simple rules)  (control in)                       │
+└────┬──────────────────────────────────┬───────────────────────────┘
+     │        localhost:8080             │
      │                                   │
-     │ WEBHOOK (adapter state changes)   │ API (lever control)
+     │ WEBHOOK (adapter                  │ API (lever control)
+     │ state changes)                    │
      ▼                                   ▲
 ┌────────────────────────────────────────────────────────────────┐
-│              AUTOMATION CONTROLLER (port 8081)                   │
-│                                                                  │
-│  • Receives webhook events when adapters change                 │
-│  • Evaluates complex AND/OR rule conditions                      │
-│  • Triggers levers instantly (no polling delay)                  │
-│  • Maintains state + event log                                   │
-│  • Exposes /api/state and /api/events for dashboard              │
-└────────────────────┬────────────────────────────────────────────┘
-                     │
-                     │ HTTP (state/events API)
-                     ▼
-┌────────────────────────────────────────────────────────────────┐
-│              WEB DASHBOARD (localhost:8000)                      │
-│                                                                  │
-│  • Polls controller for state + events (rich data)               │
-│  • Falls back to game API if controller offline                  │
-│  • Displays adapters, levers, and automation event feed          │
-│  • Manual lever control                                          │
+│                     DOCKER CONTAINER                             │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │        AUTOMATION CONTROLLER (port 8081)                   │ │
+│  │                                                            │ │
+│  │  • Receives webhook events when adapters change           │ │
+│  │  • Evaluates complex AND/OR rule conditions                │ │
+│  │  • Triggers levers instantly (no polling delay)            │ │
+│  │  • Maintains state + event log                             │ │
+│  │  • Exposes /api/state and /api/events for dashboard        │ │
+│  └──────────────────────┬─────────────────────────────────────┘ │
+│                         │                                         │
+│                         │ HTTP (state/events API)                 │
+│                         ▼                                         │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │          WEB DASHBOARD (port 8000)                         │ │
+│  │                                                            │ │
+│  │  • Polls controller for state + events (rich data)         │ │
+│  │  • Falls back to game API if controller offline            │ │
+│  │  • Displays adapters, levers, automation event feed        │ │
+│  │  • Manual lever control                                    │ │
+│  └────────────────────────────────────────────────────────────┘ │
 └────────────────────────────────────────────────────────────────┘
+     ▲                                         ▲
+     │ http://localhost:8081                   │ http://localhost:8000
+     └─────────────────────────────────────────┘
+              Browser / External Clients
+
+NOTE: Container reaches host's localhost:8080 via host.docker.internal
+      (Docker Desktop) or extra_hosts mapping (Linux)
 ```
 
 ## Event-Driven Architecture
@@ -144,12 +155,62 @@ Browser-based real-time monitoring dashboard with manual lever control and autom
 
 ## Quick Start
 
+> ⚠️ **Work in Progress:** The Docker setup is structurally complete but not production-tested. It provides a clear architecture for containerized deployment — functional enough to understand and extend, but may need refinement for production use.
+
 ### Prerequisites
 - Timberborn with HTTP API mod installed and enabled
-- Python 3.7+ (for controller)
+- Docker and Docker Compose (recommended method)
+- OR Python 3.7+ (for non-Docker setup)
 - Any modern browser (for dashboard)
 
-### Controller Setup
+### Docker Setup (Recommended)
+
+1. **Clone and configure:**
+   ```bash
+   git clone https://github.com/DrakeMackley/TimberbornAutomation.git
+   cd TimberbornAutomation
+   cp controller/config.example.yaml controller/config.yaml
+   ```
+
+2. **Edit `controller/config.yaml`:**
+   - Set `mode: "webhook"` (or `"polling"` / `"hybrid"`)
+   - Configure your automation rules (match in-game adapter/lever names)
+   - The default `game_api_url: http://host.docker.internal:8080` works on Docker Desktop
+
+3. **Platform-specific networking:**
+   - **Docker Desktop (Windows/Mac):** Works out of the box with `host.docker.internal`
+   - **Linux:** Uncomment the `extra_hosts` line in `docker-compose.yml`:
+     ```yaml
+     extra_hosts:
+       - "host.docker.internal:host-gateway"
+     ```
+   - **Alternative for Linux:** Use `network_mode: "host"` in `docker-compose.yml` (comment out port mappings if using this)
+
+4. **Build and run:**
+   ```bash
+   docker-compose up -d
+   ```
+
+5. **Check status:**
+   ```bash
+   docker-compose logs -f
+   ```
+
+6. **Access:**
+   - Dashboard: http://localhost:8000
+   - Controller API: http://localhost:8081/api/state
+   - Health check: http://localhost:8081/health
+
+The controller will log webhook URLs to configure in-game:
+```
+Configure in-game adapters to call:
+  ON:  http://localhost:8081/on/{adapter_name}
+  OFF: http://localhost:8081/off/{adapter_name}
+```
+
+### Non-Docker Setup (Alternative)
+
+If you prefer to run without Docker:
 
 1. **Install dependencies:**
    ```bash
@@ -164,19 +225,23 @@ Browser-based real-time monitoring dashboard with manual lever control and autom
 
 3. **Edit `config.yaml`:**
    - Set `mode: "webhook"` (or `"polling"` / `"hybrid"`)
+   - Change `game_api_url` to `http://localhost:8080` (non-Docker uses direct localhost)
    - Configure your automation rules (match in-game adapter/lever names)
 
-4. **Run:**
+4. **Run controller:**
    ```bash
    python3 controller.py
    ```
 
-   The controller will log webhook URLs to configure in-game:
+5. **In a separate terminal, serve the dashboard:**
+   ```bash
+   cd dashboard
+   python3 -m http.server 8000
    ```
-   Configure in-game adapters to call:
-     ON:  http://localhost:8081/on/{adapter_name}
-     OFF: http://localhost:8081/off/{adapter_name}
-   ```
+
+6. **Access:**
+   - Dashboard: http://localhost:8000
+   - Controller API: http://localhost:8081/api/state
 
 ### In-Game Webhook Configuration
 
@@ -190,27 +255,7 @@ For each HTTP Adapter you want to automate:
 
 The adapter name in the URL should match the name you use in your `config.yaml` rules.
 
-### Dashboard Setup
-
-1. **Start a web server:**
-   ```bash
-   cd dashboard
-   python3 -m http.server 8000
-   ```
-
-2. **Open in browser:**
-   ```
-   http://localhost:8000
-   ```
-
-3. **Configure URLs (optional):**
-   - Game API URL: `http://localhost:8080` (default)
-   - Controller URL: `http://localhost:8081` (default)
-
-The dashboard will:
-- Show adapter/lever state from the controller (if running)
-- Fall back to direct game API polling if controller is offline
-- Display automation event history (controller only)
+**Note:** The game calls these webhook URLs from the host machine, so `localhost:8081` correctly reaches the container's exposed port.
 
 ## Configuration
 
@@ -278,26 +323,59 @@ Edit the URL fields in the dashboard UI to change endpoints (saved to browser lo
 
 ## Troubleshooting
 
-### Webhooks Not Working
-- Check controller logs for incoming webhook calls
+### Docker-Specific Issues
+
+#### Controller Can't Reach Game API
+**Symptom:** Controller logs show "Game not reachable" or connection errors
+
+**Solutions:**
+- **Docker Desktop (Windows/Mac):** Ensure `game_api_url: http://host.docker.internal:8080` in config.yaml
+- **Linux:** Uncomment `extra_hosts` in docker-compose.yml or use `network_mode: "host"`
+- **Verify game is running:** `curl http://localhost:8080/api/adapters` from host machine
+- **Check container logs:** `docker-compose logs timberborn-automation`
+
+#### Container Won't Start
+**Symptom:** `docker-compose up` fails or container exits immediately
+
+**Solutions:**
+- Check logs: `docker-compose logs`
+- Verify config.yaml exists: `ls -la controller/config.yaml`
+- Rebuild image: `docker-compose build --no-cache`
+- Check port conflicts: `docker ps` or `netstat -an | grep 808`
+
+#### Dashboard Not Loading
+**Symptom:** http://localhost:8000 doesn't respond
+
+**Solutions:**
+- Verify container is running: `docker ps`
+- Check exposed ports: `docker-compose ps`
+- View container logs: `docker-compose logs -f`
+- Test controller separately: `curl http://localhost:8081/health`
+
+### General Issues
+
+#### Webhooks Not Working
+- Check controller logs for incoming webhook calls: `docker-compose logs -f` (Docker) or check console output (non-Docker)
 - Verify adapter webhook URLs match controller endpoint (case-sensitive names)
 - Ensure no firewall blocking port 8081
 - Test with a browser: `http://localhost:8081/on/TestAdapter` (should return `{"status":"ok"}`)
+- **Docker:** Webhooks from the game reach the container via port mapping (no special config needed)
 
-### Controller Can't Reach Game
+#### Controller Can't Reach Game (Non-Docker)
 - Verify game is running and HTTP API is enabled
-- Check `game_api_url` in config matches game's API endpoint
+- Check `game_api_url` in config.yaml should be `http://localhost:8080` (NOT host.docker.internal)
 - Test manually: `curl http://localhost:8080/api/adapters`
 
-### Dashboard Shows "Disconnected"
+#### Dashboard Shows "Disconnected"
 - Verify URLs in dashboard config panel
 - Check browser console for CORS errors
 - If controller offline, dashboard falls back to game API (this is normal)
 
-### Port Already in Use
-- Another process is using port 8081
-- Change `webhook_port` in config.yaml
-- Update in-game webhook URLs to match new port
+#### Port Already in Use
+- **Docker:** Another container or process is using the port
+  - Stop conflicting container: `docker stop $(docker ps -q --filter publish=8081)`
+  - Or change ports in docker-compose.yml
+- **Non-Docker:** Change `webhook_port` in config.yaml and update in-game webhook URLs
 
 ## Advanced Usage
 
