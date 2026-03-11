@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   timberborn-automation:
     build: .
@@ -32,10 +30,12 @@ services:
     #   Container shares the host's network stack directly
     # network_mode: "host"
     
-    # Volume mount for config persistence (optional)
-    # Uncomment to edit config.yaml on the host and have changes take effect
-    # volumes:
-    #   - ./controller/config.yaml:/app/controller/config.yaml:ro
+    # Volume mount for config persistence
+    # REQUIRED: Create your config before first run:
+    #   cp controller/config.example.yaml controller/config.yaml
+    # Then edit controller/config.yaml with your rules and settings
+    volumes:
+      - ./controller/config.yaml:/app/controller/config.yaml:ro
     
     restart: unless-stopped
     
