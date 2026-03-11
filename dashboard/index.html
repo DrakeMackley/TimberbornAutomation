@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timberborn Colony Dashboard</title>
+    <style>
+        :root {
+            --bg-dark: #1a1a2e;
+            --bg-card: #16213e;
+            --accent: #d4a574; /* wood/brass accent */
+            --accent-bright: #e8c797;
+            --text: #e0e0e0;
+            --text-dim: #a0a0a0;
+            --border: #2a2a3e;
+            --success: #4ecca3;
+            --warning: #f4a261;
+            --danger: #e76f51;
+            --lever-on: #2EC4B6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid var(--accent);
+        }
+
+        h1 {
+            color: var(--accent-bright);
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            color: var(--text-dim);
+            font-size: 1rem;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 15px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .status-dot.connected {
+            background: var(--success);
+        }
+
+        .status-dot.disconnected {
+            background: var(--danger);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .last-update {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        button {
+            background: var(--bg-card);
+            color: var(--text);
+            border: 1px solid var(--accent);
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: var(--accent);
+            color: var(--bg-dark);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .card h2 {
+            color: var(--accent-bright);
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }
+
+        .adapter-list, .lever-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .adapter-item, .lever-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 4px;
+            border-left: 3px solid transparent;
+        }
+
+        .adapter-item.active {
+            border-left-color: var(--danger);
+        }
+
+        .adapter-item.inactive {
+            border-left-color: var(--success);
+        }
+
+        .adapter-name, .lever-name {
+            flex: 1;
+            font-size: 0.95rem;
+        }
+
+        .adapter-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .adapter-badge.on {
+            background: var(--danger);
+            color: white;
+        }
+
+        .adapter-badge.off {
+            background: var(--success);
+            color: white;
+        }
+
+        .lever-toggle {
+            padding: 6px 14px;
+            font-size: 0.85rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .lever-toggle.on {
+            background: var(--lever-on);
+            color: white;
+            border-color: var(--lever-on);
+        }
+
+        .lever-toggle.off {
+            background: transparent;
+            border-color: var(--text-dim);
+        }
+
+        .lever-toggle:hover {
+            transform: scale(1.05);
+        }
+
+        .empty-state {
+            color: var(--text-dim);
+            text-align: center;
+            padding: 20px;
+            font-style: italic;
+        }
+
+        .category-selector {
+            margin-bottom: 20px;
+        }
+
+        .category-selector input {
+            background: var(--bg-card);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 8px;
+            border-radius: 4px;
+            width: 100%;
+            margin-top: 8px;
+        }
+
+        .category-selector label {
+            font-size: 0.9rem;
+            color: var(--text-dim);
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.8rem;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .status-bar {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🦫 Timberborn Colony Dashboard</h1>
+            <div class="subtitle">Real-time colony status monitoring</div>
+        </header>
+
+        <div class="status-bar">
+            <div class="status-indicator">
+                <div class="status-dot" id="connectionDot"></div>
+                <span id="connectionStatus">Connecting...</span>
+            </div>
+            <div class="last-update">
+                Last update: <span id="lastUpdate">never</span>
+            </div>
+            <div style="color: var(--text-dim);">
+                Polling every <span id="pollInterval">5</span>s
+            </div>
+        </div>
+
+        <div class="controls">
+            <button onclick="refreshNow()">🔄 Refresh Now</button>
+            <button onclick="togglePolling()">
+                <span id="pollingButton">⏸️ Pause</span>
+            </button>
+            <button onclick="showConfig()">⚙️ Configure Categories</button>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>📊 Adapters (Sensors)</h2>
+                <div class="category-selector">
+                    <label>Filter by name:</label>
+                    <input type="text" id="adapterFilter" placeholder="e.g., Water, Weather, Power..." oninput="filterAdapters()">
+                </div>
+                <div class="adapter-list" id="adapterList">
+                    <div class="empty-state">Waiting for data...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>🎛️ Levers (Controls)</h2>
+                <div class="category-selector">
+                    <label>Filter by name:</label>
+                    <input type="text" id="leverFilter" placeholder="e.g., Pump, Gate, Factory..." oninput="filterLevers()">
+                </div>
+                <div class="lever-list" id="leverList">
+                    <div class="empty-state">Waiting for data...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE = 'http://localhost:8080';
+        const POLL_INTERVAL = 5000; // 5 seconds
+        
+        // State
+        let isPolling = true;
+        let pollTimer = null;
+        let adapters = [];
+        let levers = [];
+        let isConnected = false;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('pollInterval').textContent = POLL_INTERVAL / 1000;
+            startPolling();
+        });
+
+        // Polling control
+        function startPolling() {
+            if (pollTimer) clearInterval(pollTimer);
+            refreshNow();
+            pollTimer = setInterval(refreshNow, POLL_INTERVAL);
+            isPolling = true;
+            updatePollingButton();
+        }
+
+        function stopPolling() {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = null;
+            isPolling = false;
+            updatePollingButton();
+        }
+
+        function togglePolling() {
+            if (isPolling) {
+                stopPolling();
+            } else {
+                startPolling();
+            }
+        }
+
+        function updatePollingButton() {
+            const btn = document.getElementById('pollingButton');
+            btn.textContent = isPolling ? '⏸️ Pause' : '▶️ Resume';
+        }
+
+        // Data fetching
+        async function refreshNow() {
+            try {
+                await Promise.all([fetchAdapters(), fetchLevers()]);
+                setConnected(true);
+                updateLastUpdate();
+            } catch (err) {
+                console.error('Refresh failed:', err);
+                setConnected(false);
+            }
+        }
+
+        async function fetchAdapters() {
+            const response = await fetch(`${API_BASE}/api/adapters`);
+            if (!response.ok) throw new Error('Failed to fetch adapters');
+            adapters = await response.json();
+            renderAdapters();
+        }
+
+        async function fetchLevers() {
+            const response = await fetch(`${API_BASE}/api/levers`);
+            if (!response.ok) throw new Error('Failed to fetch levers');
+            levers = await response.json();
+            renderLevers();
+        }
+
+        // Rendering
+        function renderAdapters() {
+            const container = document.getElementById('adapterList');
+            const filter = document.getElementById('adapterFilter').value.toLowerCase();
+            
+            const filtered = adapters.filter(a => 
+                a.name.toLowerCase().includes(filter)
+            );
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div class="empty-state">No adapters found</div>';
+                return;
+            }
+
+            container.innerHTML = filtered
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map(adapter => `
+                    <div class="adapter-item ${adapter.state ? 'active' : 'inactive'}">
+                        <span class="adapter-name">${escapeHtml(adapter.name)}</span>
+                        <span class="adapter-badge ${adapter.state ? 'on' : 'off'}">
+                            ${adapter.state ? 'ON' : 'OFF'}
+                        </span>
+                    </div>
+                `).join('');
+        }
+
+        function renderLevers() {
+            const container = document.getElementById('leverList');
+            const filter = document.getElementById('leverFilter').value.toLowerCase();
+            
+            const filtered = levers.filter(l => 
+                l.name.toLowerCase().includes(filter)
+            );
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div class="empty-state">No levers found</div>';
+                return;
+            }
+
+            container.innerHTML = filtered
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map(lever => `
+                    <div class="lever-item">
+                        <span class="lever-name">${escapeHtml(lever.name)}</span>
+                        <button 
+                            class="lever-toggle ${lever.state ? 'on' : 'off'}"
+                            onclick="toggleLever('${escapeHtml(lever.name)}', ${!lever.state})"
+                        >
+                            ${lever.state ? 'ON' : 'OFF'}
+                        </button>
+                    </div>
+                `).join('');
+        }
+
+        function filterAdapters() {
+            renderAdapters();
+        }
+
+        function filterLevers() {
+            renderLevers();
+        }
+
+        // Lever control
+        async function toggleLever(name, turnOn) {
+            const action = turnOn ? 'switch-on' : 'switch-off';
+            const encodedName = encodeURIComponent(name);
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/${action}/${encodedName}`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) throw new Error('Lever toggle failed');
+                
+                // Refresh to show new state
+                await fetchLevers();
+            } catch (err) {
+                console.error('Failed to toggle lever:', err);
+                alert(`Failed to toggle lever: ${name}`);
+            }
+        }
+
+        // UI updates
+        function setConnected(connected) {
+            isConnected = connected;
+            const dot = document.getElementById('connectionDot');
+            const status = document.getElementById('connectionStatus');
+            
+            if (connected) {
+                dot.className = 'status-dot connected';
+                status.textContent = 'Connected';
+            } else {
+                dot.className = 'status-dot disconnected';
+                status.textContent = 'Disconnected';
+            }
+        }
+
+        function updateLastUpdate() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString();
+            document.getElementById('lastUpdate').textContent = timeStr;
+        }
+
+        function showConfig() {
+            alert('Category configuration: Use the filter boxes to search adapters and levers by name. Categories are determined by the adapter/lever names you set in-game.');
+        }
+
+        // Utility
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
