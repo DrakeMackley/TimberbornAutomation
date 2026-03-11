@@ -136,7 +136,8 @@ Python-based rules engine that processes webhook events from HTTP Adapters and t
 - State API for dashboard integration
 - Zero-crash operation
 
-[→ Controller Documentation](controller/README.md)
+[→ Controller Documentation](controller/README.md)  
+[→ Controller API Specification](docs/controller-api-spec.md)
 
 ### 2. [Dashboard](dashboard/) — Colony Status Monitor
 Browser-based real-time monitoring dashboard with manual lever control and automation event feed.
