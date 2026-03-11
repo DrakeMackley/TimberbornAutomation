@@ -40,13 +40,21 @@ class AutomationEvent:
         self.details = details
     
     def to_dict(self):
-        return {
-            "timestamp": self.timestamp,
+        from datetime import datetime
+        event_dict = {
             "type": self.type,
             "name": self.name,
-            "state": self.state,
-            "details": self.details
+            "timestamp": datetime.fromtimestamp(self.timestamp).isoformat() + 'Z'
         }
+        
+        if self.type == "adapter":
+            event_dict["state"] = self.state
+        elif self.type == "rule":
+            event_dict["triggered"] = bool(self.state)
+        elif self.type == "lever":
+            event_dict["action"] = "on" if self.state else "off"
+        
+        return event_dict
 
 
 class TimberbornController:
@@ -60,10 +68,15 @@ class TimberbornController:
         self.rules = self.config.get('rules', [])
         
         # State tracking
-        self.adapter_states: Dict[str, bool] = {}
-        self.lever_states: Dict[str, bool] = {}
+        self.adapter_states: Dict[str, dict] = {}  # {name: {state: bool, last_changed: timestamp}}
+        self.lever_states: Dict[str, dict] = {}    # {name: {state: bool, last_changed: timestamp}}
         self.events = deque(maxlen=100)  # Keep last 100 events
         self.state_lock = threading.Lock()
+        
+        # Statistics
+        self.start_time = time.time()
+        self.rules_evaluated_count = 0
+        self.actions_fired_count = 0
         
         # Server reference
         self.http_server = None
@@ -111,13 +124,27 @@ class TimberbornController:
         adapters = self._get_adapters_from_api()
         levers = self._get_levers_from_api()
         
+        now = time.time()
         with self.state_lock:
             if adapters:
-                self.adapter_states = {a['name']: a['state'] for a in adapters}
+                for a in adapters:
+                    # Preserve last_changed if state hasn't changed
+                    if a['name'] in self.adapter_states and self.adapter_states[a['name']]['state'] == a['state']:
+                        continue
+                    self.adapter_states[a['name']] = {
+                        'state': a['state'],
+                        'last_changed': now
+                    }
                 logger.info(f"Synced {len(adapters)} adapters from API")
             
             if levers:
-                self.lever_states = {l['name']: l['state'] for l in levers}
+                for l in levers:
+                    if l['name'] in self.lever_states and self.lever_states[l['name']]['state'] == l['state']:
+                        continue
+                    self.lever_states[l['name']] = {
+                        'state': l['state'],
+                        'last_changed': now
+                    }
                 logger.info(f"Synced {len(levers)} levers from API")
     
     def _trigger_lever(self, lever_name: str, action: str) -> bool:
@@ -132,8 +159,13 @@ class TimberbornController:
             
             # Update local state
             new_state = (action == "on")
+            now = time.time()
             with self.state_lock:
-                self.lever_states[lever_name] = new_state
+                self.lever_states[lever_name] = {
+                    'state': new_state,
+                    'last_changed': now
+                }
+                self.actions_fired_count += 1
             
             logger.info(f"✓ Lever '{lever_name}' switched {action.upper()}")
             
@@ -159,7 +191,8 @@ class TimberbornController:
             for check in checks:
                 adapter_name = check.get('adapter')
                 expected_state = check.get('state', True)
-                current_state = self.adapter_states.get(adapter_name, False)
+                adapter_data = self.adapter_states.get(adapter_name, {'state': False})
+                current_state = adapter_data.get('state', False)
                 results.append(current_state == expected_state)
         
         if operator == 'AND':
@@ -169,6 +202,9 @@ class TimberbornController:
     
     def _process_rules(self):
         """Process all rules and trigger actions as needed."""
+        with self.state_lock:
+            self.rules_evaluated_count += len(self.rules)
+        
         for rule in self.rules:
             rule_name = rule.get('name', 'Unnamed Rule')
             conditions = rule.get('conditions', {})
@@ -190,10 +226,15 @@ class TimberbornController:
     
     def update_adapter_state(self, adapter_name: str, new_state: bool):
         """Update adapter state and process rules."""
-        old_state = self.adapter_states.get(adapter_name)
+        old_data = self.adapter_states.get(adapter_name)
+        old_state = old_data.get('state') if old_data else None
         
+        now = time.time()
         with self.state_lock:
-            self.adapter_states[adapter_name] = new_state
+            self.adapter_states[adapter_name] = {
+                'state': new_state,
+                'last_changed': now
+            }
         
         # Log state change
         if old_state != new_state or old_state is None:
@@ -207,19 +248,46 @@ class TimberbornController:
     
     def get_state_snapshot(self) -> dict:
         """Get current system state for API queries."""
+        from datetime import datetime
+        
         with self.state_lock:
+            # Convert adapter states to spec format
+            adapters_dict = {}
+            for name, data in self.adapter_states.items():
+                adapters_dict[name] = {
+                    "state": data['state'],
+                    "last_changed": datetime.fromtimestamp(data['last_changed']).isoformat() + 'Z'
+                }
+            
+            # Convert lever states to spec format
+            levers_dict = {}
+            for name, data in self.lever_states.items():
+                levers_dict[name] = {
+                    "state": data['state'],
+                    "last_changed": datetime.fromtimestamp(data['last_changed']).isoformat() + 'Z'
+                }
+            
             return {
-                "adapters": dict(self.adapter_states),
-                "levers": dict(self.lever_states),
+                "adapters": adapters_dict,
+                "levers": levers_dict,
                 "events": [e.to_dict() for e in list(self.events)[-20:]],  # Last 20 events
-                "timestamp": time.time()
+                "mode": self.mode,
+                "uptime_seconds": int(time.time() - self.start_time),
+                "rules_evaluated": self.rules_evaluated_count,
+                "actions_fired": self.actions_fired_count
             }
     
-    def get_events(self, limit: int = 50) -> List[dict]:
+    def get_events(self, limit: int = 50) -> dict:
         """Get recent events."""
         with self.state_lock:
             events_list = list(self.events)
-            return [e.to_dict() for e in events_list[-limit:]]
+            total = len(events_list)
+            recent_events = events_list[-limit:]
+            return {
+                "events": [e.to_dict() for e in recent_events],
+                "total_stored": total,
+                "returned": len(recent_events)
+            }
     
     def run_webhook_server(self):
         """Run webhook server to receive adapter events."""
@@ -235,8 +303,18 @@ class TimberbornController:
                 self.send_response(status)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                self.send_header('Access-Control-Allow-Headers', 'Content-Type')
                 self.end_headers()
                 self.wfile.write(json.dumps(data).encode())
+            
+            def do_OPTIONS(self):
+                """Handle CORS preflight."""
+                self.send_response(200)
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+                self.end_headers()
             
             def do_GET(self):
                 """Handle GET requests."""
@@ -248,19 +326,30 @@ class TimberbornController:
             
             def _handle_request(self):
                 """Handle webhook calls and API queries."""
+                from datetime import datetime
                 path = self.path
                 
                 # Adapter webhooks: /on/{name} or /off/{name}
                 if path.startswith('/on/'):
                     adapter_name = unquote(path[4:])
                     controller.update_adapter_state(adapter_name, True)
-                    self._send_json_response({"status": "ok", "adapter": adapter_name, "state": True})
+                    self._send_json_response({
+                        "status": "ok",
+                        "adapter": adapter_name,
+                        "state": True,
+                        "timestamp": datetime.utcnow().isoformat() + 'Z'
+                    })
                     return
                 
                 elif path.startswith('/off/'):
                     adapter_name = unquote(path[5:])
                     controller.update_adapter_state(adapter_name, False)
-                    self._send_json_response({"status": "ok", "adapter": adapter_name, "state": False})
+                    self._send_json_response({
+                        "status": "ok",
+                        "adapter": adapter_name,
+                        "state": False,
+                        "timestamp": datetime.utcnow().isoformat() + 'Z'
+                    })
                     return
                 
                 # State API: /api/state
@@ -278,18 +367,32 @@ class TimberbornController:
                         except (ValueError, IndexError):
                             pass
                     
-                    events = controller.get_events(limit)
-                    self._send_json_response({"events": events})
+                    events_data = controller.get_events(limit)
+                    self._send_json_response(events_data)
                     return
                 
                 # Health check
                 elif path == '/health':
+                    # Check if game is reachable
+                    game_reachable = False
+                    try:
+                        response = requests.get(f"{controller.api_base}/api/adapters", timeout=2)
+                        game_reachable = response.status_code == 200
+                    except Exception:
+                        pass
+                    
+                    health_status = "healthy" if game_reachable or controller.mode == "webhook" else "degraded"
+                    status_code = 200 if health_status == "healthy" else 503
+                    
                     self._send_json_response({
-                        "status": "ok", 
+                        "status": health_status,
                         "mode": controller.mode,
-                        "adapters_count": len(controller.adapter_states),
-                        "levers_count": len(controller.lever_states)
-                    })
+                        "uptime_seconds": int(time.time() - controller.start_time),
+                        "game_reachable": game_reachable,
+                        "adapters_tracked": len(controller.adapter_states),
+                        "levers_tracked": len(controller.lever_states),
+                        "rules_loaded": len(controller.rules)
+                    }, status=status_code)
                     return
                 
                 else:
@@ -336,8 +439,15 @@ class TimberbornController:
                 # Sync lever states
                 levers = self._get_levers_from_api()
                 if levers:
+                    now = time.time()
                     with self.state_lock:
-                        self.lever_states = {l['name']: l['state'] for l in levers}
+                        for l in levers:
+                            if l['name'] in self.lever_states and self.lever_states[l['name']]['state'] == l['state']:
+                                continue
+                            self.lever_states[l['name']] = {
+                                'state': l['state'],
+                                'last_changed': now
+                            }
                 
                 # Sleep until next poll
                 time.sleep(self.polling_interval)
