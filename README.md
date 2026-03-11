@@ -86,9 +86,111 @@ All workplaces, housing, power generators/consumers, gates, fill valves, and thr
 2. **Web Dashboard** — Browser-based colony status panel
 3. **Expand** — More rules, richer dashboard, community-shared configurations
 
-## Setup
+## Components
 
-_Coming soon — Phase 1 in progress._
+### 1. [Controller](controller/) — Smart Automation Engine
+Python-based rules engine that polls HTTP Adapters (sensors) and triggers HTTP Levers (actuators) based on complex multi-condition logic.
+
+**Features:**
+- Config-driven YAML rules
+- AND/OR condition logic
+- Auto-retry when game offline
+- Detailed logging
+- Zero-crash operation
+
+[→ Controller Documentation](controller/README.md)
+
+### 2. [Dashboard](dashboard/) — Colony Status Monitor
+Browser-based real-time monitoring dashboard with manual lever control.
+
+**Features:**
+- Live adapter state monitoring
+- Manual lever toggles
+- Filter/search by name
+- Connection status indicator
+- Pause/resume polling
+- Pure HTML/CSS/JS (no build step)
+
+[→ Dashboard Documentation](dashboard/README.md)
+
+## Quick Start
+
+### Prerequisites
+- Timberborn with HTTP API mod installed and enabled
+- Python 3.7+ (for controller)
+- Any modern browser (for dashboard)
+
+### Controller Setup
+
+1. **Install dependencies:**
+   ```bash
+   cd controller
+   pip3 install -r requirements.txt
+   ```
+
+2. **Create your config:**
+   ```bash
+   cp config.example.yaml config.yaml
+   ```
+
+3. **Edit `config.yaml`** to match your in-game adapter and lever names
+
+4. **Run:**
+   ```bash
+   python3 controller.py
+   ```
+
+### Dashboard Setup
+
+1. **Start a web server:**
+   ```bash
+   cd dashboard
+   python3 -m http.server 8000
+   ```
+
+2. **Open in browser:**
+   ```
+   http://localhost:8000
+   ```
+
+That's it! The dashboard will auto-poll and display your colony status.
+
+## Configuration
+
+### Controller Rules
+
+Rules define automation logic. Each rule has:
+- **name** — descriptive label for logging
+- **conditions** — adapter checks with AND/OR operator
+- **actions** — levers to trigger when conditions match
+
+Example:
+```yaml
+rules:
+  - name: "Drought Emergency Response"
+    conditions:
+      operator: AND
+      checks:
+        - adapter: "Weather Drought"
+          state: true
+        - adapter: "Water Depth Critical"
+          state: true
+    actions:
+      - lever: "Emergency Pumps"
+        action: "on"
+      - lever: "Floodgate Main"
+        action: "off"
+```
+
+See [config.example.yaml](controller/config.example.yaml) for more examples.
+
+### Dashboard Customization
+
+Edit `index.html` to change:
+- `API_BASE` — game API endpoint (default: `http://localhost:8080`)
+- `POLL_INTERVAL` — refresh frequency in milliseconds (default: 5000)
+
+Use the built-in filter boxes to focus on specific adapter/lever categories.
 
 ## License
 
