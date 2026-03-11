@@ -23,3 +23,7 @@ venv/
 # Build
 dist/
 build/
+
+# Controller
+controller/config.yaml
+controller/*.log
