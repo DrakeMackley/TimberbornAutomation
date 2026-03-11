@@ -490,4 +490,8 @@ All of the following building types can be toggled on/off by automation signals:
 
 ---
 
+**Faction availability:** All factions have access to all automation buildings.
+
+> Construction costs, tile footprints, and research unlocks are omitted intentionally — players can adapt to those easily. This reference focuses on **capabilities and use cases**, which benefit from study and experience.
+
 *Last updated: March 2026 | Timberborn 1.0*
